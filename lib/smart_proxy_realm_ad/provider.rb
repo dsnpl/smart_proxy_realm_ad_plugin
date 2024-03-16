@@ -35,16 +35,38 @@ module Proxy::AdRealm
       logger.debug "Proxy::AdRealm: create... #{realm}, #{hostfqdn}, #{params}"
       check_realm(realm)
       kinit_radcli_connect
-
       password = generate_password
       result = { randompassword: password }
 
       computername = hostfqdn_to_computername(hostfqdn)
-
       if params[:rebuild] == 'true'
         radcli_password(computername, password)
       else
-        radcli_join(hostfqdn, computername, password)
+        begin
+          radcli_join(hostfqdn, computername, password)
+        rescue RuntimeError => e
+          max_attempts = 3
+          logger.warn "Proxy::AdRealm: create... #{realm}, #{hostfqdn}, #{params} -> failed to create computer account #{e.message}"
+          logger.info "Proxy::AdRealm: create... #{realm}, #{hostfqdn}, #{params} -> resetting password up to #{max_attempts} times"
+
+          attempt = 0
+          base_delay = 1
+
+          begin
+            attempt += 1
+            radcli_password(computername, password)
+
+          rescue RuntimeError => e
+            if attempt <= max_attempts
+              logger.warn "Attempt #{attempt}/#{max_attempts} failed with error: #{e.message}. Retrying in #{base_delay} seconds."
+              sleep(base_delay)
+              base_delay *= 2 # Double the delay for the next attempt
+              retry
+            else
+              logger.error "Max attempts reached. Exiting."
+            end
+          end
+        end
       end
 
       JSON.pretty_generate(result)
