@@ -64,6 +64,7 @@ module Proxy::AdRealm
               retry
             else
               logger.error "Max attempts reached. Exiting."
+              raise e
             end
           end
         end
