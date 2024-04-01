@@ -45,12 +45,12 @@ module Proxy::AdRealm
         begin
           radcli_join(hostfqdn, computername, password)
         rescue RuntimeError => e
-          max_attempts = 3
-          logger.warn "Proxy::AdRealm: create... #{realm}, #{hostfqdn}, #{params} -> failed to create computer account #{e.message}"
-          logger.info "Proxy::AdRealm: create... #{realm}, #{hostfqdn}, #{params} -> resetting password up to #{max_attempts} times"
+          max_attempts = 7
+          logger.warn "Proxy::AdRealm: create... #{realm}, #{hostfqdn} -> Error: #{e.message}"
+          logger.info "Proxy::AdRealm: create... #{realm}, #{hostfqdn} -> resetting password up to #{max_attempts} times"
 
           attempt = 0
-          base_delay = 1
+          base_delay = 1 # initial delay in seconds
 
           begin
             attempt += 1
@@ -58,13 +58,25 @@ module Proxy::AdRealm
 
           rescue RuntimeError => e
             if attempt <= max_attempts
-              logger.warn "Attempt #{attempt}/#{max_attempts} failed with error: #{e.message}. Retrying in #{base_delay} seconds."
+              logger.warn "Attempt #{attempt}/#{max_attempts} to reset password failed with error: #{e.message}. Retrying in #{base_delay} seconds."
               sleep(base_delay)
               base_delay *= 2 # Double the delay for the next attempt
               retry
             else
-              logger.error "Max attempts reached. Exiting."
-              raise e
+
+              logger.warn "Proxy::AdRealm: create... #{realm}, #{hostfqdn} -> Max attempts to reset password reached. Trying 1 last attempt"
+              # One last attempt - delete the entry entirely and create a new one
+              begin
+                # Delete the computer entry - squashing any errors
+                begin
+                 delete(realm, hostfqdn)
+                rescue Exception
+                end
+
+                radcli_join(hostfqdn, computername, password)
+                logger.info "Proxy::AdRealm: create... #{realm}, #{hostfqdn} -> Final attempt worked?"
+
+              end
             end
           end
         end
